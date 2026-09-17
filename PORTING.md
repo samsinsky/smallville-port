@@ -11,14 +11,23 @@ talks to a model**, and as little else as possible.
 
 ## What works
 
-A 3,000-step run (3 agents, midnight to 08:20 game time) completes with 0 errors
-and 1 fail-safe in 360 requests, for about $0.11. Agents wake on schedule, plan
-their day from their seed, move, perceive, score memories and reflect. Sector,
-arena and object selection, task decomposition and event triples all parse.
+A 4,500-step run (3 agents, midnight to 12:30 game time) completes with 0 errors
+and **3 fail-safes in 1,116 requests (0.3%)**, in 25 minutes for **$0.29**.
+Every call runs at its task's original temperature.
 
-Conversations, and the memory writing around them, have been tested in isolation
-but not yet across a full simulated day: in a 3-agent world nobody comes within
-talking range before 08:20.
+That run exercises the whole loop: waking, planning the day from the seed,
+movement, perception, importance scoring, two 16-turn conversations, the memory
+writing that follows them, and five reflections producing fifteen insights.
+
+Observed behaviour, as a sanity check rather than a result: Isabella invited
+Maria to the Valentine's party at 10:12 and Maria negotiated around her own
+seeded streaming schedule. Klaus and Maria then talked for 16 turns at 12:10 and
+the party never came up — Klaus ends the morning with none of it in memory. The
+same non-transmission appears in the demo data shipped with the original repo.
+
+Known rough edge: conversations run the full 8 rounds (16 turns). The
+end-of-conversation flag rarely fires, so the last turns tend to restate the
+arrangement already made.
 
 ## Setup
 

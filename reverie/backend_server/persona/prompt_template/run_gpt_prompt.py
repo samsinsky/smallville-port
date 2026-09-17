@@ -923,6 +923,14 @@ def run_gpt_prompt_event_triple(action_description, persona, verbose=False):
       items = items[1:]
     if len(items) > 2:
       items = [items[0], ", ".join(items[1:])]
+    if len(items) == 1 and " " in items[0]:
+      # No comma at all: descriptions like "being used by X for Y" have no
+      # natural verb/object split, and the model answers as one phrase
+      # ("be used by Klaus Mueller for researching"). Deterministic at
+      # temperature 0, so retrying cannot help. Split off the leading verb
+      # rather than discarding the event and calling the object idle.
+      verb, rest = items[0].split(" ", 1)
+      items = [verb, rest]
     return items
 
   def __func_validate(gpt_response, prompt=""): 
@@ -1104,6 +1112,14 @@ def run_gpt_prompt_act_obj_event_triple(act_game_object, act_obj_desc, persona, 
       items = items[1:]
     if len(items) > 2:
       items = [items[0], ", ".join(items[1:])]
+    if len(items) == 1 and " " in items[0]:
+      # No comma at all: descriptions like "being used by X for Y" have no
+      # natural verb/object split, and the model answers as one phrase
+      # ("be used by Klaus Mueller for researching"). Deterministic at
+      # temperature 0, so retrying cannot help. Split off the leading verb
+      # rather than discarding the event and calling the object idle.
+      verb, rest = items[0].split(" ", 1)
+      items = [verb, rest]
     return items
 
   def __func_validate(gpt_response, prompt=""): 
