@@ -6,6 +6,11 @@
 <img src="cover.png" alt="Smallville" style="width: 80%; min-width: 300px; display: block; margin: auto;">
 </p>
 
+> **This is a fork, ported to 2026 models and Python 3.12.** The original code targets
+> `text-davinci-003` and the pre-1.0 OpenAI SDK and no longer runs as shipped. See
+> **[PORTING.md](PORTING.md)** for setup, what changed, and known limitations.
+> The text below is the original README from Park et al.
+
 This repository accompanies our research paper titled "[Generative Agents: Interactive Simulacra of Human Behavior](https://arxiv.org/abs/2304.03442)." It contains our core simulation module for  generative agents—computational agents that simulate believable human behaviors—and their game environment. Below, we document the steps for setting up the simulation environment on your local machine and for replaying the simulation as a demo animation.
 
 ## <img src="https://joonsungpark.s3.amazonaws.com:443/static/assets/characters/profile/Isabella_Rodriguez.png" alt="Generative Isabella">   Setting Up the Environment 
