@@ -1,0 +1,11 @@
+# Dependencies for the 2026 port (Python 3.12). The original requirements.txt
+# pins 2023-era packages that do not install on 3.12 and is kept for reference.
+# Backend imports only openai, numpy and selenium; the rest serve the frontend
+# and the analysis scripts.
+openai==3.14.1
+numpy==2.5.3
+selenium==4.49.0
+Django==4.2.30
+django-cors-headers==4.9.0
+django-storages==1.14.6
+pillow==12.3.0

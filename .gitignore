@@ -1,4 +1,5 @@
-reverie/backend_server/utils.py
+# utils.py is tracked in the 2026 port: it holds model routing and config;
+# the API key lives in .env (ignored below).
 frontend_server/settings/local.py
 storage/*
 static_dirs/*
@@ -99,4 +100,17 @@ ENV/
 .spyderproject
 
 # Rope project settings
-.ropeproject
+.ropeproject.env
+.venv/
+cost_log.jsonl
+__pycache__/
+*.pyc
+
+# --- 2026 port ---
+# Simulation output: every sim you run is created under storage/. Tracked sims
+# shipped with the repo are unaffected; new ones stay local.
+environment/frontend_server/storage/*
+# per-run logs written by scripts/drive_run.sh
+runs/
+environment/frontend_server/temp_storage/curr_step.json
+*.orig2023

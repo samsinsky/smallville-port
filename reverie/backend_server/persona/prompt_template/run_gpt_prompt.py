@@ -54,8 +54,15 @@ def run_gpt_prompt_wake_up_hour(persona, test_input=None, verbose=False):
     return prompt_input
 
   def __func_clean_up(gpt_response, prompt=""):
-    cr = int(gpt_response.strip().lower().split("am")[0])
-    return cr
+    # Original: int(response.split("am")[0]). At the original temperature 0.8,
+    # models vary the format -- "6:00 AM", "06:00am" -- which raised ValueError,
+    # burned retries, and fell back to 8am without any visible error. Take the
+    # leading hour instead.
+    m = re.search(r"\b(\d{1,2})(?::\d{2})?\s*(am|pm)?\b", gpt_response.strip().lower())
+    hour = int(m.group(1))
+    if m.group(2) == "pm" and hour < 12:
+      hour += 12
+    return hour
   
   def __func_validate(gpt_response, prompt=""): 
     try: __func_clean_up(gpt_response, prompt="")
@@ -370,13 +377,26 @@ def run_gpt_prompt_task_decomp(persona,
         _cr += [" ".join([j.strip () for j in i.split(" ")][3:])]
       else: 
         _cr += [i]
-    for count, i in enumerate(_cr): 
-      k = [j.strip() for j in i.split("(duration in minutes:")]
-      task = k[0]
-      if task[-1] == ".": 
-        task = task[:-1]
-      duration = int(k[1].split(",")[0].strip())
-      cr += [[task, duration]]
+    for count, i in enumerate(_cr):
+      # The original split on the literal "(duration in minutes:". Modern chat
+      # models paraphrase that to "(duration: 5 minutes, ...)" -- same meaning,
+      # different syntax, and k[1] then does not exist. Match the parenthetical
+      # by shape instead, anchored on the LAST one so parentheses inside the
+      # task text ("breakfast (e.g. toast)") do not steal the split.
+      m = None
+      for m in re.finditer(r"\(\s*duration\b[^)]*\)", i, re.I):
+        pass
+      if not m:
+        continue
+      dm = re.search(r"(\d+)", m.group(0))
+      if not dm:
+        continue
+      task = i[:m.start()].strip().rstrip(".").strip()
+      if not task:
+        continue
+      cr += [[task, int(dm.group(1))]]
+    if not cr:
+      raise ValueError("task_decomp: no parseable subtask lines")
 
     total_expected_min = int(prompt.split("(total duration in minutes")[-1]
                                    .split("):")[0].strip())
@@ -395,7 +415,7 @@ def run_gpt_prompt_task_decomp(persona,
     curr_min_slot = curr_min_slot[1:]   
 
     if len(curr_min_slot) > total_expected_min: 
-      last_task = curr_min_slot[60]
+      last_task = curr_min_slot[min(60, len(curr_min_slot) - 1)]
       for i in range(1, 6): 
         curr_min_slot[-1 * i] = last_task
     elif len(curr_min_slot) < total_expected_min: 
@@ -422,9 +442,11 @@ def run_gpt_prompt_task_decomp(persona,
       # return False
     return gpt_response
 
-  def get_fail_safe(): 
-    fs = ["asleep"]
-    return fs
+  def get_fail_safe():
+    # Consumers unpack this as [[task, duration], ...] -- the original
+    # ["asleep"] unpacks as characters and crashes the run instead of
+    # degrading. Fill the whole slot with one fallback task.
+    return [["asleep", duration]]
 
   gpt_param = {"engine": "text-davinci-003", "max_tokens": 1000, 
              "temperature": 0, "top_p": 1, "stream": False,
@@ -553,18 +575,19 @@ def run_gpt_prompt_action_sector(action_description,
 
 
   def __func_clean_up(gpt_response, prompt=""):
-    cleaned_response = gpt_response.split("}")[0]
-    return cleaned_response
+    # lstrip("{") guards the case where the model echoes the prompt's dangling
+    # opening brace -- that produced KeyError: "{Maria Lopez's room".
+    return gpt_response.split("}")[0].strip().lstrip("{").strip()
 
-  def __func_validate(gpt_response, prompt=""): 
-    if len(gpt_response.strip()) < 1: 
+  def __func_validate(gpt_response, prompt=""):
+    if len(gpt_response.strip()) < 1:
       return False
     if "}" not in gpt_response:
       return False
-    if "," in gpt_response: 
+    if "," in gpt_response:
       return False
     return True
-  
+
   def get_fail_safe(): 
     fs = ("kitchen")
     return fs
@@ -683,18 +706,19 @@ def run_gpt_prompt_action_arena(action_description,
     return prompt_input
 
   def __func_clean_up(gpt_response, prompt=""):
-    cleaned_response = gpt_response.split("}")[0]
-    return cleaned_response
+    # lstrip("{") guards the case where the model echoes the prompt's dangling
+    # opening brace -- that produced KeyError: "{Maria Lopez's room".
+    return gpt_response.split("}")[0].strip().lstrip("{").strip()
 
-  def __func_validate(gpt_response, prompt=""): 
-    if len(gpt_response.strip()) < 1: 
+  def __func_validate(gpt_response, prompt=""):
+    if len(gpt_response.strip()) < 1:
       return False
     if "}" not in gpt_response:
       return False
-    if "," in gpt_response: 
+    if "," in gpt_response:
       return False
     return True
-  
+
   def get_fail_safe(): 
     fs = ("kitchen")
     return fs
@@ -838,6 +862,11 @@ def run_gpt_prompt_pronunciatio(action_description, persona, verbose=False):
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -883,13 +912,22 @@ def run_gpt_prompt_event_triple(action_description, persona, verbose=False):
     return prompt_input
   
   def __func_clean_up(gpt_response, prompt=""):
-    cr = gpt_response.strip()
-    cr = [i.strip() for i in cr.split(")")[0].split(",")]
-    return cr
+    # The prompt ends "Output: (<subject>," and expects "<predicate>, <object>)".
+    # Original split on every comma and required exactly 2 items, so a repeated
+    # subject ("bed, is, idle)") or a comma inside the object failed -- and at
+    # temperature 0 every retry repeats the same answer, so it always fell back.
+    cr = gpt_response.strip().lstrip("(")
+    items = [i.strip() for i in cr.split(")")[0].split(",")]
+    subject = prompt.rsplit("Output: (", 1)[-1].strip().rstrip(",").strip().lower() if prompt else ""
+    if len(items) >= 3 and subject and items[0].lower() == subject:
+      items = items[1:]
+    if len(items) > 2:
+      items = [items[0], ", ".join(items[1:])]
+    return items
 
   def __func_validate(gpt_response, prompt=""): 
     try: 
-      gpt_response = __func_clean_up(gpt_response, prompt="")
+      gpt_response = __func_clean_up(gpt_response, prompt=prompt)
       if len(gpt_response) != 2: 
         return False
     except: return False
@@ -908,7 +946,7 @@ def run_gpt_prompt_event_triple(action_description, persona, verbose=False):
 
   # def __chat_func_validate(gpt_response, prompt=""): ############
   #   try: 
-  #     gpt_response = __func_clean_up(gpt_response, prompt="")
+  #     gpt_response = __func_clean_up(gpt_response, prompt=prompt)
   #     if len(gpt_response) != 2: 
   #       return False
   #   except: return False
@@ -1014,6 +1052,11 @@ def run_gpt_prompt_act_obj_desc(act_game_object, act_desp, persona, verbose=Fals
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -1050,13 +1093,22 @@ def run_gpt_prompt_act_obj_event_triple(act_game_object, act_obj_desc, persona, 
     return prompt_input
   
   def __func_clean_up(gpt_response, prompt=""):
-    cr = gpt_response.strip()
-    cr = [i.strip() for i in cr.split(")")[0].split(",")]
-    return cr
+    # The prompt ends "Output: (<subject>," and expects "<predicate>, <object>)".
+    # Original split on every comma and required exactly 2 items, so a repeated
+    # subject ("bed, is, idle)") or a comma inside the object failed -- and at
+    # temperature 0 every retry repeats the same answer, so it always fell back.
+    cr = gpt_response.strip().lstrip("(")
+    items = [i.strip() for i in cr.split(")")[0].split(",")]
+    subject = prompt.rsplit("Output: (", 1)[-1].strip().rstrip(",").strip().lower() if prompt else ""
+    if len(items) >= 3 and subject and items[0].lower() == subject:
+      items = items[1:]
+    if len(items) > 2:
+      items = [items[0], ", ".join(items[1:])]
+    return items
 
   def __func_validate(gpt_response, prompt=""): 
     try: 
-      gpt_response = __func_clean_up(gpt_response, prompt="")
+      gpt_response = __func_clean_up(gpt_response, prompt=prompt)
       if len(gpt_response) != 2: 
         return False
     except: return False
@@ -1243,6 +1295,9 @@ def run_gpt_prompt_new_decomp_schedule(persona,
 
 def run_gpt_prompt_decide_to_talk(persona, target_persona, retrieved,test_input=None, 
                                        verbose=False): 
+  if SOCIAL_GATE == "shipped":
+    # What the shipped code effectively returned (fail-safe), without the calls.
+    return "yes", ["yes", None, None, None, "yes"]
   def create_prompt_input(init_persona, target_persona, retrieved, 
                           test_input=None): 
     last_chat = init_persona.a_mem.get_last_chat(target_persona.name)
@@ -1303,16 +1358,17 @@ def run_gpt_prompt_decide_to_talk(persona, target_persona, retrieved,test_input=
     prompt_input += [target_persona.name]
     return prompt_input
   
-  def __func_validate(gpt_response, prompt=""): 
-    try: 
-      if gpt_response.split("Answer in yes or no:")[-1].strip().lower() in ["yes", "no"]: 
-        return True
-      return False     
-    except:
-      return False 
-
   def __func_clean_up(gpt_response, prompt=""):
-    return gpt_response.split("Answer in yes or no:")[-1].strip().lower()
+    # The template's format line is `Answer in "yes" or "no":` -- quoted. The
+    # original split on the unquoted label, so a complete answer never parsed.
+    # Accept either form; take the last labelled answer, never a stray "no"
+    # from inside the reasoning text.
+    m = re.findall(r'answer in "?yes"? or "?no"?\s*:\s*"?(yes|no)\b',
+                   gpt_response.lower())
+    return m[-1] if m else ""
+
+  def __func_validate(gpt_response, prompt=""):
+    return __func_clean_up(gpt_response) in ("yes", "no")
 
   def get_fail_safe(): 
     fs = "yes"
@@ -1343,6 +1399,8 @@ def run_gpt_prompt_decide_to_talk(persona, target_persona, retrieved,test_input=
 
 def run_gpt_prompt_decide_to_react(persona, target_persona, retrieved,test_input=None, 
                                        verbose=False): 
+  if SOCIAL_GATE == "shipped":
+    return "3", ["3", None, None, None, "3"]
   def create_prompt_input(init_persona, target_persona, retrieved, 
                           test_input=None): 
 
@@ -1402,16 +1460,14 @@ def run_gpt_prompt_decide_to_react(persona, target_persona, retrieved,test_input
     prompt_input += [init_act_desc]
     return prompt_input
   
-  def __func_validate(gpt_response, prompt=""): 
-    try: 
-      if gpt_response.split("Answer: Option")[-1].strip().lower() in ["3", "2", "1"]: 
-        return True
-      return False     
-    except:
-      return False 
-
   def __func_clean_up(gpt_response, prompt=""):
-    return gpt_response.split("Answer: Option")[-1].strip().lower() 
+    # Original split on "Answer: Option" and required exactly "1"/"2"/"3", so a
+    # trailing period ("Option 1.") failed. Take the last labelled option.
+    m = re.findall(r"answer:\s*option\s*([123])\b", gpt_response.lower())
+    return m[-1] if m else ""
+
+  def __func_validate(gpt_response, prompt=""):
+    return __func_clean_up(gpt_response) in ("1", "2", "3")
 
   def get_fail_safe(): 
     fs = "3"
@@ -1639,6 +1695,11 @@ def run_gpt_prompt_summarize_conversation(persona, conversation, test_input=None
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -1892,6 +1953,11 @@ def run_gpt_prompt_event_poignancy(persona, event_description, test_input=None, 
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -1963,6 +2029,11 @@ def run_gpt_prompt_thought_poignancy(persona, event_description, test_input=None
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -2035,6 +2106,11 @@ def run_gpt_prompt_chat_poignancy(persona, event_description, test_input=None, v
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -2145,15 +2221,22 @@ def run_gpt_prompt_insight_and_guidance(persona, statements, n, test_input=None,
     return prompt_input
   
   def __func_clean_up(gpt_response, prompt=""):
+    # Original required "(because of " on EVERY line, so the blank lines models
+    # put between numbered insights raised IndexError and the whole reflection
+    # failed. It also kept only the text after the last ". ", truncating any
+    # multi-sentence insight. Parse each line that carries evidence.
     gpt_response = "1. " + gpt_response.strip()
     ret = dict()
-    for i in gpt_response.split("\n"): 
-      row = i.split(". ")[-1]
+    for line in gpt_response.split("\n"):
+      if "(because of " not in line:
+        continue
+      row = re.sub(r"^\s*\d+[.)]\s*", "", line.strip())
       thought = row.split("(because of ")[0].strip()
-      evi_raw = row.split("(because of ")[1].split(")")[0].strip()
-      evi_raw = re.findall(r'\d+', evi_raw)
-      evi_raw = [int(i.strip()) for i in evi_raw]
-      ret[thought] = evi_raw
+      evi_raw = row.split("(because of ")[1].split(")")[0]
+      if thought:
+        ret[thought] = [int(x) for x in re.findall(r"\d+", evi_raw)]
+    if not ret:
+      raise ValueError("no insight lines with evidence")
     return ret
 
   def __func_validate(gpt_response, prompt=""): 
@@ -2238,6 +2321,11 @@ def run_gpt_prompt_agent_chat_summarize_ideas(persona, target_persona, statement
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -2306,6 +2394,11 @@ def run_gpt_prompt_agent_chat_summarize_relationship(persona, target_persona, st
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -2435,6 +2528,11 @@ def run_gpt_prompt_agent_chat(maze, persona, target_persona,
   # print ("HERE END JULY 23 -- ----- ") ########
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 
@@ -2515,6 +2613,11 @@ def run_gpt_prompt_summarize_ideas(persona, statements, question, test_input=Non
                                           __chat_func_validate, __chat_func_clean_up, True)
   if output != False: 
     return output, [output, prompt, gpt_param, prompt_input, fail_safe]
+  # Shipped code ended here: exhausted retries fell through to an implicit None,
+  # which crashed the caller several frames away. Use the declared fail-safe, and
+  # record that we did, so a run can report how much of it ran on defaults.
+  record_fail_safe(prompt_template)
+  return fail_safe, [fail_safe, prompt, gpt_param, prompt_input, fail_safe]
   # ChatGPT Plugin ===========================================================
 
 

@@ -45,14 +45,18 @@ def generate_insights_and_evidence(persona, nodes, n=5):
   ret = run_gpt_prompt_insight_and_guidance(persona, statements, n)[0]
 
   print (ret)
-  try: 
-
-    for thought, evi_raw in ret.items(): 
-      evidence_node_id = [nodes[i].node_id for i in evi_raw]
-      ret[thought] = evidence_node_id
-    return ret
-  except: 
-    return {"this is blank": "node_1"} 
+  # Shipped behaviour on any failure here -- the list-shaped fail-safe, or one
+  # citation past the end of `nodes` -- was to return {"this is blank": "node_1"},
+  # which reflect() then stored as a real thought, scored, embedded and later
+  # retrieved. Instead: drop only citations that point nowhere, and on a failed
+  # reflection store nothing.
+  if not isinstance(ret, dict):
+    return {}
+  out = {}
+  for thought, evi_raw in ret.items():
+    ids = [nodes[i].node_id for i in evi_raw if isinstance(i, int) and 0 <= i < len(nodes)]
+    out[thought] = ids
+  return out
 
 
 def generate_action_event_triple(act_desp, persona): 
