@@ -1670,7 +1670,13 @@ def run_gpt_prompt_summarize_conversation(persona, conversation, test_input=None
     return prompt_input
   
   def __func_clean_up(gpt_response, prompt=""):
-    ret = "conversing about " + gpt_response.strip()
+    # The model often already begins "conversing about ...", despite the
+    # instruction to just finish the sentence -- prepending unconditionally
+    # produced "conversing about conversing about ...". These descriptions are
+    # the embedding keys retrieval matches on, so the noise mattered.
+    body = gpt_response.strip()
+    body = re.sub(r"^(conversing about\s*)+", "", body, flags=re.I)
+    ret = "conversing about " + body
     return ret
 
   def __func_validate(gpt_response, prompt=""): 
@@ -1686,7 +1692,13 @@ def run_gpt_prompt_summarize_conversation(persona, conversation, test_input=None
 
   # ChatGPT Plugin ===========================================================
   def __chat_func_clean_up(gpt_response, prompt=""): ############
-    ret = "conversing about " + gpt_response.strip()
+    # The model often already begins "conversing about ...", despite the
+    # instruction to just finish the sentence -- prepending unconditionally
+    # produced "conversing about conversing about ...". These descriptions are
+    # the embedding keys retrieval matches on, so the noise mattered.
+    body = gpt_response.strip()
+    body = re.sub(r"^(conversing about\s*)+", "", body, flags=re.I)
+    ret = "conversing about " + body
     return ret
 
   def __chat_func_validate(gpt_response, prompt=""): ############

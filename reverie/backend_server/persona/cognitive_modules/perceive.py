@@ -153,23 +153,35 @@ def perceive(persona, maze):
       # of the persona here. 
       chat_node_ids = []
       if p_event[0] == f"{persona.name}" and p_event[1] == "chat with": 
-        curr_event = persona.scratch.act_event
-        if persona.scratch.act_description in persona.a_mem.embeddings: 
-          chat_embedding = persona.a_mem.embeddings[
-                             persona.scratch.act_description]
-        else: 
-          chat_embedding = get_embedding(persona.scratch
-                                                .act_description)
-        chat_embedding_pair = (persona.scratch.act_description, 
-                               chat_embedding)
-        chat_poignancy = generate_poig_score(persona, "chat", 
-                                             persona.scratch.act_description)
-        chat_node = persona.a_mem.add_chat(persona.scratch.curr_time, None,
-                      curr_event[0], curr_event[1], curr_event[2], 
-                      persona.scratch.act_description, keywords, 
-                      chat_poignancy, chat_embedding_pair, 
-                      persona.scratch.chat)
-        chat_node_ids = [chat_node.node_id]
+        # A conversation is generated once, then acted out over many steps. The
+        # "is this new?" check above only looks at the last <retention> (8)
+        # events, so a long chat drops out of that window and the entire
+        # transcript is stored again -- 3 copies for Klaus and 5 for Maria in a
+        # 4500-step run, each re-scored, re-embedded, and each draining the
+        # reflection counter again. Reuse the node we already wrote.
+        existing = next((n for n in persona.a_mem.seq_chat
+                         if n.description == persona.scratch.act_description
+                         and n.filling == persona.scratch.chat), None)
+        if existing:
+          chat_node_ids = [existing.node_id]
+        if not existing:
+          curr_event = persona.scratch.act_event
+          if persona.scratch.act_description in persona.a_mem.embeddings: 
+            chat_embedding = persona.a_mem.embeddings[
+                               persona.scratch.act_description]
+          else: 
+            chat_embedding = get_embedding(persona.scratch
+                                                  .act_description)
+          chat_embedding_pair = (persona.scratch.act_description, 
+                                 chat_embedding)
+          chat_poignancy = generate_poig_score(persona, "chat", 
+                                               persona.scratch.act_description)
+          chat_node = persona.a_mem.add_chat(persona.scratch.curr_time, None,
+                        curr_event[0], curr_event[1], curr_event[2], 
+                        persona.scratch.act_description, keywords, 
+                        chat_poignancy, chat_embedding_pair, 
+                        persona.scratch.chat)
+          chat_node_ids = [chat_node.node_id]
 
       # Finally, we add the current event to the agent's memory. 
       ret_events += [persona.a_mem.add_event(persona.scratch.curr_time, None,
