@@ -25,9 +25,9 @@ seeded streaming schedule. Klaus and Maria then talked for 16 turns at 12:10 and
 the party never came up — Klaus ends the morning with none of it in memory. The
 same non-transmission appears in the demo data shipped with the original repo.
 
-Known rough edge: conversations run the full 8 rounds (16 turns). The
-end-of-conversation flag rarely fires, so the last turns tend to restate the
-arrangement already made.
+Conversation length varies: of four observed, three ran the full 8 rounds
+(16 turns) and one ended at 7. The long ones tend to restate an arrangement
+already made in their closing turns.
 
 ## Setup
 
