@@ -118,13 +118,19 @@ def run_gpt_prompt_daily_plan(persona,
     return prompt_input
 
   def __func_clean_up(gpt_response, prompt=""):
+    # Original indexed i[-1] on every ")"-split segment, so an empty segment --
+    # produced when the model echoes the prompt's trailing "2)" -- raised
+    # IndexError and the agent silently got the generic fail-safe day.
     cr = []
-    _cr = gpt_response.split(")")
-    for i in _cr: 
-      if i[-1].isdigit(): 
+    for i in gpt_response.split(")"):
+      i = i.strip()
+      if not i or not i[-1].isdigit():
+        continue
+      i = i[:-1].strip()
+      if i and i[-1] in (".", ","):
         i = i[:-1].strip()
-        if i[-1] == "." or i[-1] == ",": 
-          cr += [i[:-1].strip()]
+      if i:
+        cr += [i]
     return cr
 
   def __func_validate(gpt_response, prompt=""):

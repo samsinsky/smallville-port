@@ -11,6 +11,7 @@ sites in run_gpt_prompt.py and friends need no edits.
 import json
 import os
 import random
+import re
 import threading
 import time
 
@@ -183,6 +184,15 @@ def _undouble_delimiter(prompt, text):
   tail = prompt.rstrip()
   if not tail or not text:
     return text
+  # Enumerated prompts end mid-list ("... at 6:00 am, 2)") and models repeat
+  # that marker instead of continuing past it, so the parser sees an empty
+  # first item. Same echo as the opening-delimiter case, different shape.
+  m = re.search(r"(\d+\s*[).])\s*$", tail)
+  if m:
+    marker = m.group(1).replace(" ", "")
+    stripped = text.lstrip()
+    if stripped.replace(" ", "", 1).startswith(marker) or stripped.startswith(marker):
+      return stripped[len(marker):].lstrip()
   opener = tail[-1]
   if opener in _OPENERS and text.lstrip().startswith(opener):
     return text.lstrip()[1:].lstrip()
