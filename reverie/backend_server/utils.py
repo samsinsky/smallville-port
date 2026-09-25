@@ -156,6 +156,14 @@ collision_block_id = "32125"
 
 debug = True
 
+# --------------------------------------------------------------- network
+# A dropped connection should cost time, not silently replace decisions with
+# defaults. 6 attempts with doubling backoff capped at 60s tolerates roughly
+# two minutes of outage before a call gives up. Applies to chat AND embeddings:
+# an SSL EOF on an embedding ended a 4500-step run at step 4279.
+NETWORK_MAX_RETRIES = 6
+NETWORK_BACKOFF_CAP = 60
+
 # ----------------------------------------------------------- token budget
 # Floor on max_completion_tokens for every call. Reasoning models need it or they
 # starve to an empty string (measured: out=256, content ""). It is also applied

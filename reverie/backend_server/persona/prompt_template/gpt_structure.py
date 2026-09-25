@@ -200,7 +200,8 @@ def _undouble_delimiter(prompt, text):
 
 
 def _chat(prompt, model=None, max_tokens=512, temperature=None, stop=None,
-          system=_COMPLETION_SYSTEM, template=None, max_retries=4):
+          system=_COMPLETION_SYSTEM, template=None,
+          max_retries=NETWORK_MAX_RETRIES):
   """One chat request, with a real error taxonomy.
 
   The 2023 code wrapped every call in a bare `except:` that returned the
@@ -312,7 +313,7 @@ def _chat(prompt, model=None, max_tokens=512, temperature=None, stop=None,
       if attempt == max_retries:
         break
       time.sleep(delay + random.uniform(0, 0.4))
-      delay = min(delay * 2, 30)
+      delay = min(delay * 2, NETWORK_BACKOFF_CAP)
 
   raise last_err
 
@@ -485,11 +486,27 @@ def ChatGPT_safe_generate_response_OLD(prompt, repeat=3,
 
 
 def get_embedding(text, model=None):
+  """Embeddings are ~25% of all calls and are made from seven call sites, none
+  of which catch anything. Without this retry a single dropped connection ends
+  the simulation mid-run (observed: SSL EOF inside reflection at step 4279)."""
   model = model or EMBEDDING_MODEL
   text = text.replace("\n", " ")
   if not text:
     text = "this is blank"
-  t0 = time.time()
-  resp = _client.embeddings.create(input=[text], model=model)
-  _log("embedding", model, resp.usage, time.time() - t0, 0)
-  return resp.data[0].embedding
+  delay, last_err = 1.0, None
+  for attempt in range(NETWORK_MAX_RETRIES + 1):
+    t0 = time.time()
+    try:
+      resp = _client.embeddings.create(input=[text], model=model)
+      _log("embedding", model, resp.usage, time.time() - t0, attempt)
+      return resp.data[0].embedding
+    except (RateLimitError, APIConnectionError, APITimeoutError,
+            InternalServerError) as e:
+      last_err = e
+      _log("embedding", model, None, time.time() - t0, attempt,
+           error=type(e).__name__)
+      if attempt == NETWORK_MAX_RETRIES:
+        break
+      time.sleep(delay + random.uniform(0, 0.4))
+      delay = min(delay * 2, NETWORK_BACKOFF_CAP)
+  raise last_err
