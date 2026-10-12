@@ -20,13 +20,20 @@ VP=$ROOT/.venv/bin/python
 export SMALLVILLE_SOCIAL_GATE=$GATE
 export SMALLVILLE_LOG_DIR=$ROOT/runs/$SIM
 rm -rf $ROOT/environment/frontend_server/storage/$SIM "$SMALLVILLE_LOG_DIR"
+# Stale readiness signal from an earlier attempt would make the stepper think
+# this sim is already forked and create movement/ while copytree is running.
+rm -f $ROOT/environment/frontend_server/temp_storage/curr_sim_code.json
 mkdir -p "$SMALLVILLE_LOG_DIR"
 printf '{"sim": "%s", "base": "%s", "steps": %s, "social_gate": "%s", "history": "%s", "started": "%s"}\n' \
   "$SIM" "$BASE" "$STEPS" "$GATE" "${HISTORY:-none}" "$(date -u +%FT%TZ)" > "$SMALLVILLE_LOG_DIR/run_config.json"
 $VP headless_env.py $SIM > "$SMALLVILLE_LOG_DIR/stepper.log" 2>&1 &
 ST=$!
 if [ -n "$HISTORY" ]; then
-  printf '%s\n%s\ncall -- load history %s\nrun %s\nfin\n' "$BASE" "$SIM" "$HISTORY" "$STEPS" \
+  # One step first: whispering sets each memory's timestamp from
+  # persona.scratch.curr_time, which is None until a persona has moved once.
+  # Loading before that raises TypeError and the histories are silently skipped.
+  printf '%s\n%s\nrun 1\ncall -- load history %s\nrun %s\nfin\n' \
+    "$BASE" "$SIM" "$HISTORY" "$((STEPS-1))" \
     | $VP reverie.py > "$SMALLVILLE_LOG_DIR/backend.log" 2>&1
 else
   printf '%s\n%s\nrun %s\nfin\n' "$BASE" "$SIM" "$STEPS" \
