@@ -23,7 +23,7 @@ import os
 import sys
 import time
 
-from utils import fs_storage
+from utils import fs_storage, fs_temp_storage
 
 
 def transpose(movement_doc, prev_env):
@@ -43,12 +43,20 @@ def run(sim_code, poll=0.05, idle_timeout=None):
   sim = os.path.join(fs_storage, sim_code)
   env_dir, mov_dir = os.path.join(sim, "environment"), os.path.join(sim, "movement")
 
-  # The backend forks a sim with shutil.copytree, which refuses an existing
-  # destination -- so wait for the fork rather than creating the folder here.
-  if not os.path.isdir(sim):
-    print(f"[headless] waiting for {sim_code} to be forked...")
-    while not os.path.isdir(sim):
-      time.sleep(0.2)
+  # The backend forks a sim with shutil.copytree, which refuses any directory
+  # that already exists. Waiting for the sim folder is not enough: copytree
+  # creates it immediately and then copies for seconds (a 4000-step fork), so
+  # creating movement/ in that window makes the fork fail. Wait instead for
+  # curr_sim_code.json, which the backend writes only after the copy is done.
+  ready = os.path.join(fs_temp_storage, "curr_sim_code.json")
+  print(f"[headless] waiting for {sim_code} to finish forking...")
+  while True:
+    try:
+      if json.load(open(ready)).get("sim_code") == sim_code:
+        break
+    except (OSError, json.JSONDecodeError):
+      pass
+    time.sleep(0.2)
   # The base sims ship with environment/ and personas/ but no movement/, and
   # the backend writes movement/<step>.json without creating the parent. The
   # Django frontend makes it; headless, that is this process's job.
