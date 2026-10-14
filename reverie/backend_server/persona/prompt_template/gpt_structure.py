@@ -40,6 +40,24 @@ _COMPLETION_SYSTEM = (
     "failure even when the meaning is right."
 )
 
+# The v3_ChatGPT/ and safety/ templates were written for gpt-3.5 -- they give
+# instructions and specify an output format, rather than ending mid-sentence.
+# Telling those "you are a text completion engine, output only the continuation,
+# never add labels" contradicts the prompt itself (iterative_convo_v1 asks for a
+# JSON object), so they get an instruction-following system message instead.
+_INSTRUCTION_SYSTEM = (
+    "Follow the instructions in the message exactly. When the message specifies "
+    "an output format, return exactly that and nothing else: no preamble, no "
+    "commentary, no code fences."
+)
+
+
+def _default_system(template):
+  return (_INSTRUCTION_SYSTEM
+          if template.startswith(("v3_ChatGPT/", "safety/"))
+          else _COMPLETION_SYSTEM)
+
+
 # ---------------------------------------------------------------------------
 # Routing + accounting
 # ---------------------------------------------------------------------------
@@ -200,7 +218,7 @@ def _undouble_delimiter(prompt, text):
 
 
 def _chat(prompt, model=None, max_tokens=512, temperature=None, stop=None,
-          system=_COMPLETION_SYSTEM, template=None,
+          system=None, template=None,
           max_retries=NETWORK_MAX_RETRIES):
   """One chat request, with a real error taxonomy.
 
@@ -211,6 +229,8 @@ def _chat(prompt, model=None, max_tokens=512, temperature=None, stop=None,
   errors back off and retry, fatal errors raise immediately.
   """
   template = template or _current_template
+  if system is None:
+    system = _default_system(template)
   route = _route(template)
   model = model or route["model"]
   # Callers on the gpt-3.5 path never pass a temperature (the original relied on
