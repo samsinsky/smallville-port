@@ -121,7 +121,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,
 .wrap{display:grid;grid-template-columns:1fr 380px;gap:14px;padding:14px;height:100vh}
 .map{position:relative;background:#0b0f13;border:1px solid var(--line);border-radius:6px;overflow:hidden}
 .map img{width:100%;display:block;image-rendering:pixelated}
-.dot{position:absolute;width:14px;height:14px;border-radius:50%;translate:-50% -50%;
+.dot{position:absolute;width:16px;height:16px;border-radius:50%;translate:-50% -50%;
      border:2px solid #0b0f13;transition:left .4s linear,top .4s linear;box-shadow:0 0 0 1px rgba(255,255,255,.35)}
 .tag{position:absolute;translate:-50% -185%;font:600 10px ui-monospace,monospace;color:#fff;
      padding:1px 5px;border-radius:3px;white-space:nowrap;transition:left .4s linear,top .4s linear}
@@ -222,7 +222,15 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
   LOGS.mkdir(parents=True, exist_ok=True)
   if not BOARD.exists():
-    from render_board import render
-    render(BOARD)
+    # The real Tiled artwork -- the same map Phaser composites at runtime, which
+    # is what the paper's figures show. render_board.py draws a schematic from
+    # the collision CSVs instead; keep it only as a fallback.
+    try:
+      from render_map import render as render_map
+      render_map(BOARD, 0.5)
+    except Exception as e:
+      print(f"[live] tiled map unavailable ({type(e).__name__}); using schematic")
+      from render_board import render as render_board
+      render_board(BOARD)
   print(f"live view of {SIM} -> http://127.0.0.1:{PORT}  (read-only; cannot stall the run)")
   ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
